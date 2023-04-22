@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -13,7 +14,7 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 
-	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, h.nama_hobi FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id WHERE m.id =?", params["id"])
+	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi) FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id WHERE m.id =? GROUP BY m.id", params["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error retrieving mahasiswa data"))
@@ -37,6 +38,14 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			panic(err.Error())
 		}
+
+		// Convert integer Gender value to string
+		if mahasiswa.Gender == "0" {
+			mahasiswa.Gender = "male"
+		} else if mahasiswa.Gender == "1" {
+			mahasiswa.Gender = "female"
+		}
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(mahasiswa)
 	}
@@ -48,7 +57,7 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 
 	var allMahasiswa []Mahasiswa
 
-	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, h.nama_hobi FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id")
+	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi) FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id GROUP BY m.id")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error retrieving mahasiswa data"))
@@ -72,6 +81,12 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			panic(err.Error())
 		}
+		// Convert integer Gender value to string
+		if mahasiswa.Gender == "0" {
+			mahasiswa.Gender = "male"
+		} else if mahasiswa.Gender == "1" {
+			mahasiswa.Gender = "female"
+		}
 		allMahasiswa = append(allMahasiswa, mahasiswa)
 	}
 	if len(allMahasiswa) == 0 {
@@ -79,6 +94,7 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("No mahasiswa data found"))
 		panic(err.Error())
 	}
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(allMahasiswa)
 }
@@ -86,52 +102,63 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 func insertMahasiswa(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	stmt, err := db.Prepare("INSERT INTO mahasiswa(nama, usia, gender, tanggal_registrasi, id_jurusan) VALUES (?, ?, ?, ?, ?)")
+	tx, err := db.Begin()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to prepare insert statement"})
-		panic(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+			return
+		}
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, "failed to commit transaction", http.StatusInternalServerError)
+			return
+		}
+	}()
+
+	stmt, err := tx.Prepare("INSERT INTO mahasiswa(nama, usia, gender, tanggal_registrasi, id_jurusan) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, "failed to prepare insert statement", http.StatusInternalServerError)
+		return
 	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read request body"})
-		panic(err.Error())
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
 	}
 
 	var mahasiswa Mahasiswa
 	err = json.Unmarshal(body, &mahasiswa)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse request body"})
-		panic(err.Error())
+		http.Error(w, "failed to parse request body", http.StatusBadRequest)
+		return
 	}
 
 	result, err := stmt.Exec(mahasiswa.Nama, mahasiswa.Usia, mahasiswa.Gender, mahasiswa.Tanggal_Registrasi, mahasiswa.ID_Jurusan)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to execute insert statement"})
-		panic(err.Error())
+		http.Error(w, "failed to execute insert statement ", http.StatusInternalServerError)
+		return
 	}
 
 	lastID, err := result.LastInsertId()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get last inserted ID"})
-		panic(err.Error())
+		http.Error(w, "failed to get last inserted ID", http.StatusInternalServerError)
+		return
 	}
 	for _, h := range mahasiswa.Hobi {
-		stmt, err = db.Prepare("INSERT INTO mahasiswa_hobi(id_mahasiswa, id_hobi) VALUES (?, ?)")
+		stmt, err = tx.Prepare("INSERT INTO mahasiswa_hobi(id_mahasiswa, id_hobi) VALUES (?, ?)")
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to execute insert statement for mahasiswa_hobi table"})
+			http.Error(w, "failed to prepare insert statement for mahasiswa_hobi table", http.StatusInternalServerError)
 			panic(err.Error())
 		}
 
 		_, err = stmt.Exec(lastID, h)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to execute query"})
+			http.Error(w, "failed to execute query", http.StatusInternalServerError)
 			panic(err.Error())
 
 		}
@@ -217,27 +244,57 @@ func updateMahasiswa(w http.ResponseWriter, r *http.Request) {
 func deleteMahasiswa(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
-	// Delete the corresponding rows in mahasiswa_hobi table
-	hobiStmt, err := db.Prepare("DELETE FROM mahasiswa_hobi WHERE id_mahasiswa =?")
+	// Transaction declaration
+	tx, err := db.Begin()
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Check if mahasiswa exists in database
+	var mahasiswa Mahasiswa
+	err = tx.QueryRow("SELECT id FROM mahasiswa WHERE id = ?", params["id"]).Scan(&mahasiswa.ID)
+	if err != nil {
+		tx.Rollback()
+		if err == sql.ErrNoRows {
+			http.Error(w, "Mahasiswa not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the corresponding rows in mahasiswa_hobi table
+	hobiStmt, err := tx.Prepare("DELETE FROM mahasiswa_hobi WHERE id_mahasiswa =?")
+	if err != nil {
+		tx.Rollback()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	_, err = hobiStmt.Exec(params["id"])
 	if err != nil {
+		tx.Rollback()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Delete the mahasiswa
 
-	mahasiswaStmt, err := db.Prepare("DELETE FROM mahasiswa WHERE id =?")
+	mahasiswaStmt, err := tx.Prepare("DELETE FROM mahasiswa WHERE id =?")
 	if err != nil {
+		tx.Rollback()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	_, err = mahasiswaStmt.Exec(params["id"])
 	if err != nil {
+		tx.Rollback()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Commit transaction
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

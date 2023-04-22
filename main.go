@@ -10,18 +10,19 @@ import (
 )
 
 type Mahasiswa struct {
-	ID                 string `json:"id"`
+	ID                 int    `json:"id"`
 	Nama               string `json:"nama"`
-	Usia               string `json:"usia"`
+	Usia               int    `json:"usia"`
 	Gender             string `json:"gender"`
 	Tanggal_Registrasi string `json:"tanggal_registrasi"`
 	ID_Jurusan         string `json:"id_jurusan"`
-	Hobi               []Hobi `json:"hobi"`
+	Hobi               string `json:"hobi"`
 }
-type Hobi struct {
-	ID   string `json:"id"`
-	Nama string `json:"nama"`
-}
+
+// type Hobi struct {
+// 	ID   int    `json:"id"`
+// 	Nama string `json:"nama"`
+// }
 
 var db *sql.DB
 var err error
