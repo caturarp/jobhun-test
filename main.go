@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -10,19 +11,14 @@ import (
 )
 
 type Mahasiswa struct {
-	ID                 int    `json:"id"`
-	Nama               string `json:"nama"`
-	Usia               int    `json:"usia"`
-	Gender             string `json:"gender"`
-	Tanggal_Registrasi string `json:"tanggal_registrasi"`
-	ID_Jurusan         string `json:"id_jurusan"`
-	Hobi               string `json:"hobi"`
+	ID                 int      `json:"id"`
+	Nama               string   `json:"nama"`
+	Usia               int      `json:"usia"`
+	Gender             string   `json:"gender"`
+	Tanggal_Registrasi string   `json:"tanggal_registrasi"`
+	ID_Jurusan         string   `json:"id_jurusan"`
+	Hobi               []string `json:"hobi"`
 }
-
-// type Hobi struct {
-// 	ID   int    `json:"id"`
-// 	Nama string `json:"nama"`
-// }
 
 var db *sql.DB
 var err error
@@ -48,6 +44,6 @@ func main() {
 	router.HandleFunc("/students", getAllMahasiswa).Methods("GET")      // mahasiswa +jurusan+hobi
 	router.HandleFunc("/students/{id}", getMahasiswa).Methods("GET")
 	router.HandleFunc("/students/{id}", deleteMahasiswa).Methods("DELETE")
-	http.ListenAndServe("127.0.0.1:8000", router)
-
+	log.Printf("Starting server on http://127.0.0.1:8000")
+	log.Fatal(http.ListenAndServe("127.0.0.1:8000", router))
 }

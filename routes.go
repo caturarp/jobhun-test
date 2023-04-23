@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -14,7 +15,7 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 
-	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi) FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id WHERE m.id =? GROUP BY m.id", params["id"])
+	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi SEPARATOR ';') FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id WHERE m.id =? GROUP BY m.id", params["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error retrieving mahasiswa data"))
@@ -24,6 +25,7 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 	defer result.Close()
 
 	var mahasiswa Mahasiswa
+	var hobi string
 	for result.Next() {
 		err := result.Scan(&mahasiswa.ID,
 			&mahasiswa.Nama,
@@ -31,7 +33,7 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 			&mahasiswa.Gender,
 			&mahasiswa.Tanggal_Registrasi,
 			&mahasiswa.ID_Jurusan,
-			&mahasiswa.Hobi)
+			&hobi)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Error scanning mahasiswa data"))
@@ -45,6 +47,9 @@ func getMahasiswa(w http.ResponseWriter, r *http.Request) {
 		} else if mahasiswa.Gender == "1" {
 			mahasiswa.Gender = "female"
 		}
+		// Split comma-separated string of hobbies into a slice of strings
+		hobiArr := strings.Split(hobi, ";")
+		mahasiswa.Hobi = hobiArr
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(mahasiswa)
@@ -57,7 +62,7 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 
 	var allMahasiswa []Mahasiswa
 
-	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi) FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id GROUP BY m.id")
+	result, err := db.Query("SELECT m.id, m.nama, m.usia, m.gender, m.tanggal_registrasi, j.nama_jurusan, GROUP_CONCAT(h.nama_hobi SEPARATOR ';') FROM mahasiswa m INNER JOIN jurusan j ON m.id_jurusan = j.id LEFT JOIN mahasiswa_hobi hm ON m.id = hm.id_mahasiswa LEFT JOIN hobi h ON hm.id_hobi = h.id GROUP BY m.id")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error retrieving mahasiswa data"))
@@ -67,6 +72,7 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 	defer result.Close()
 
 	for result.Next() {
+		var hobi string
 		var mahasiswa Mahasiswa
 		err := result.Scan(&mahasiswa.ID,
 			&mahasiswa.Nama,
@@ -74,7 +80,7 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 			&mahasiswa.Gender,
 			&mahasiswa.Tanggal_Registrasi,
 			&mahasiswa.ID_Jurusan,
-			&mahasiswa.Hobi)
+			&hobi)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Error scanning mahasiswa data"))
@@ -87,8 +93,14 @@ func getAllMahasiswa(w http.ResponseWriter, r *http.Request) {
 		} else if mahasiswa.Gender == "1" {
 			mahasiswa.Gender = "female"
 		}
+
+		// Split comma-separated string of hobbies into a slice of strings
+		hobiArr := strings.Split(hobi, ";")
+		mahasiswa.Hobi = hobiArr
+
 		allMahasiswa = append(allMahasiswa, mahasiswa)
 	}
+
 	if len(allMahasiswa) == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte("No mahasiswa data found"))
@@ -125,16 +137,13 @@ func insertMahasiswa(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to prepare insert statement", http.StatusInternalServerError)
 		return
 	}
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusBadRequest)
-		return
-	}
 
 	var mahasiswa Mahasiswa
-	err = json.Unmarshal(body, &mahasiswa)
+	// err = json.Unmarshal(body, &mahasiswa)
+	err = json.NewDecoder(r.Body).Decode(&mahasiswa)
+	fmt.Print(mahasiswa)
 	if err != nil {
-		http.Error(w, "failed to parse request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -169,76 +178,77 @@ func insertMahasiswa(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateMahasiswa(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
+	w.Header().Set("Content-Type", "application/json")
+
 	tx, err := db.Begin()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer tx.Rollback()
 
-	mahasiswaStmt, err := db.Prepare("UPDATE mahasiswa SET nama = ?, usia = ?, gender =?, tanggal_registrasi =?, id_jurusan = ? WHERE mahasiswa_id = ?")
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+			return
+		}
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, "failed to commit transaction", http.StatusInternalServerError)
+			return
+		}
+	}()
+
+	vars := mux.Vars(r)
+	idMahasiswa, err := strconv.Atoi(vars["id"])
+	println(idMahasiswa)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "invalid mahasiswa id", http.StatusBadRequest)
 		return
 	}
-	defer mahasiswaStmt.Close()
 
-	body, err := ioutil.ReadAll(r.Body)
+	stmt, err := tx.Prepare("UPDATE mahasiswa SET nama = ?, usia = ?, gender = ?, tanggal_registrasi = ?, id_jurusan = ? WHERE id = ?")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to prepare update statement", http.StatusInternalServerError)
 		return
 	}
 
 	var mahasiswa Mahasiswa
-	err = json.Unmarshal(body, &mahasiswa)
+	err = json.NewDecoder(r.Body).Decode(&mahasiswa)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	_, err = mahasiswaStmt.Exec(mahasiswa.Nama, mahasiswa.Usia, mahasiswa.Gender, mahasiswa.Tanggal_Registrasi, mahasiswa.ID_Jurusan)
+	_, err = stmt.Exec(mahasiswa.Nama, mahasiswa.Usia, mahasiswa.Gender, mahasiswa.Tanggal_Registrasi, mahasiswa.ID_Jurusan, idMahasiswa)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	// delete existing Hobi
-	hobiStmt, err := tx.Prepare("DELETE FROM mahasiswa_hobi WHERE id_mahasiswa=?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer hobiStmt.Close()
-
-	_, err = hobiStmt.Exec(params["id"])
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to execute update statement ", http.StatusInternalServerError)
 		return
 	}
 
-	// insert new Hobi
-	hobiInsertStmt, err := tx.Prepare("INSERT INTO mahasiswa_hobi(id_mahasiswa, id_hobi) VALUES (?,?)")
+	_, err = tx.Exec("DELETE FROM mahasiswa_hobi WHERE id_mahasiswa = ?", idMahasiswa)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to delete existing mahasiswa_hobi data", http.StatusInternalServerError)
 		return
 	}
-	defer hobiInsertStmt.Close()
 
-	for _, hobiID := range mahasiswa.Hobi {
-		_, err = hobiInsertStmt.Exec(params["id"], hobiID)
+	for _, h := range mahasiswa.Hobi {
+		stmt, err = tx.Prepare("INSERT INTO mahasiswa_hobi(id_mahasiswa, id_hobi) VALUES (?, ?)")
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			http.Error(w, "failed to prepare insert statement for mahasiswa_hobi table", http.StatusInternalServerError)
+			panic(err.Error())
+		}
+
+		_, err = stmt.Exec(idMahasiswa, h)
+		if err != nil {
+			http.Error(w, "failed to execute query", http.StatusInternalServerError)
+			panic(err.Error())
+
 		}
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, "Mahasiswa with ID = %s was updated", params["id"])
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "mahasiswa data was updated"})
+	fmt.Fprintf(w, "Mahasiswa data was updated")
 }
 
 func deleteMahasiswa(w http.ResponseWriter, r *http.Request) {
