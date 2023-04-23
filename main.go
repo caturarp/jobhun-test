@@ -47,7 +47,6 @@ func main() {
 	router.HandleFunc("/students", mahasiswaHandler.GetAllMahasiswa).Methods("GET")      // mahasiswa +jurusan+hobi
 	router.HandleFunc("/students/{id}", mahasiswaHandler.GetMahasiswaById).Methods("GET")
 	router.HandleFunc("/students/{id}", mahasiswaHandler.DeleteMahasiswa).Methods("DELETE")
-	// router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler(swaggerFiles.Handler))
 
 	log.Printf("Starting server on http://127.0.0.1:8000")
 	log.Fatal(http.ListenAndServe("127.0.0.1:8000", router))
