@@ -6,22 +6,22 @@ import (
 	"log"
 	"net/http"
 
+	"jobhun-test/handler"
+
+	_ "jobhun-test/docs"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
-type Mahasiswa struct {
-	ID                 int      `json:"id"`
-	Nama               string   `json:"nama"`
-	Usia               int      `json:"usia"`
-	Gender             string   `json:"gender"`
-	Tanggal_Registrasi string   `json:"tanggal_registrasi"`
-	ID_Jurusan         string   `json:"id_jurusan"`
-	Hobi               []string `json:"hobi"`
-}
-
 var db *sql.DB
 var err error
+
+// @title			Jobhun API
+// @version		1
+// @description	This is the Jobhun API documentation.
+// @host			localhost:8000
+// @BasePath		/
 
 func main() {
 	db, err = sql.Open("mysql", "root:@/jobhun")
@@ -37,13 +37,18 @@ func main() {
 	}
 
 	fmt.Println("Connected to MySQL!")
+
+	mahasiswaHandler := handler.NewMahasiswaHandler(db)
+
 	router := mux.NewRouter()
 
-	router.HandleFunc("/students", insertMahasiswa).Methods("POST")     // add new mahasiswa
-	router.HandleFunc("/students/{id}", updateMahasiswa).Methods("PUT") // edit detail mahasiswa
-	router.HandleFunc("/students", getAllMahasiswa).Methods("GET")      // mahasiswa +jurusan+hobi
-	router.HandleFunc("/students/{id}", getMahasiswa).Methods("GET")
-	router.HandleFunc("/students/{id}", deleteMahasiswa).Methods("DELETE")
+	router.HandleFunc("/students", mahasiswaHandler.InsertMahasiswa).Methods("POST")     // add new mahasiswa
+	router.HandleFunc("/students/{id}", mahasiswaHandler.UpdateMahasiswa).Methods("PUT") // edit detail mahasiswa
+	router.HandleFunc("/students", mahasiswaHandler.GetAllMahasiswa).Methods("GET")      // mahasiswa +jurusan+hobi
+	router.HandleFunc("/students/{id}", mahasiswaHandler.GetMahasiswaById).Methods("GET")
+	router.HandleFunc("/students/{id}", mahasiswaHandler.DeleteMahasiswa).Methods("DELETE")
+	// router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler(swaggerFiles.Handler))
+
 	log.Printf("Starting server on http://127.0.0.1:8000")
 	log.Fatal(http.ListenAndServe("127.0.0.1:8000", router))
 }
